@@ -42,8 +42,6 @@ class NoiAwareKGE(nn.Module):
 
         true_neg_triples = negative_triples[G.forward(negative_triples)[
             :, 0] > 0.5]
-        print("the number of the true negative sample through GANs is ",
-              len(true_neg_triples))
         true_neg_triples = torch.reshape(
             true_neg_triples, (len(true_neg_triples), 3, self.emb_dim))
 

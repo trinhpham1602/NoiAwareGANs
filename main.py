@@ -16,7 +16,7 @@ import glob
 FLAGS = flags.FLAGS
 flags.DEFINE_float("lr", default=0.0001, help="Learning rate value.")
 flags.DEFINE_integer("seed", default=1234, help="Seed value.")
-flags.DEFINE_integer("batch_size", default=128, help="Maximum batch size.")
+flags.DEFINE_integer("batch_size", default=512, help="Maximum batch size.")
 flags.DEFINE_integer("validation_batch_size", default=64,
                      help="Maximum batch size during model validation.")
 flags.DEFINE_integer("emb_dim", default=100,
@@ -25,7 +25,7 @@ flags.DEFINE_float("margin", default=1.0,
                    help="Margin value in margin-based ranking loss.")
 flags.DEFINE_integer(
     "norm", default=1, help="Norm used for calculating dissimilarity metric (usually 1 or 2).")
-flags.DEFINE_integer("epochs", default=1,
+flags.DEFINE_integer("epochs", default=2000,
                      help="Number of training epochs.")
 flags.DEFINE_string("dataset_path", default="./WN18RR",
                     help="Path to dataset.")
@@ -80,7 +80,7 @@ def main(_):
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     criterion = nn.LogSigmoid()
     k = 0.7
-    N = 1
+    N = 1000
     all_triples_id = []
     for time in range(N):
         entities_emb = model.entities_emb.weight.data
@@ -148,6 +148,7 @@ def main(_):
     path = os.path.join("./", directory)
     if not os.path.exists(path):
         os.mkdir(path)
+    f = open("./output/entity2id.txt", "w")
     np.savetxt("./output/entities_emb.txt", entities_emb)
     np.savetxt("./output/relations_emb.txt", relations_emb)
     print("Done!")
