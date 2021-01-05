@@ -144,19 +144,19 @@ def main(_):
         trained_noiAware_time = end_noiAware - start_noiAware
         print("Finished interator: ", time + 1, " with time ",
               trained_GANs_time + trained_noiAware_time)
+        entities_emb = model.entities_emb.weight.data.cpu().numpy()
+        relations_emb = model.relations_emb.weight.data.cpu().numpy()
+        directory = "output" + str(time + 1)
+        path = os.path.join("./", directory)
+        if not os.path.exists(path):
+            os.mkdir(path)
+        f = open("./output/entity2id.txt", "w")
+        np.savetxt("./output/entities_emb.txt", entities_emb)
+        np.savetxt("./output/relations_emb.txt", relations_emb)
     end = perf_counter()
     print("The NoiAwareGAN is trained")
     print("total time pretrain and train NoiAwareGANs is ", end - start)
     print("---------------------------------------------")
-    entities_emb = model.entities_emb.weight.data.cpu().numpy()
-    relations_emb = model.relations_emb.weight.data.cpu().numpy()
-    directory = "output"
-    path = os.path.join("./", directory)
-    if not os.path.exists(path):
-        os.mkdir(path)
-    f = open("./output/entity2id.txt", "w")
-    np.savetxt("./output/entities_emb.txt", entities_emb)
-    np.savetxt("./output/relations_emb.txt", relations_emb)
     print("Done!")
 
 
