@@ -14,7 +14,7 @@ import noiAwareKGE as noiAware_difinition
 from time import perf_counter
 import glob
 FLAGS = flags.FLAGS
-flags.DEFINE_float("lr", default=0.0001, help="Learning rate value.")
+flags.DEFINE_float("lr", default=0.001, help="Learning rate value.")
 flags.DEFINE_integer("seed", default=1234, help="Seed value.")
 flags.DEFINE_integer("batch_size", default=512, help="Maximum batch size.")
 flags.DEFINE_integer("validation_batch_size", default=64,
@@ -33,7 +33,7 @@ flags.DEFINE_bool("use_gpu", default=True, help="Flag enabling gpu usage.")
 
 
 def main(_):
-    start = perf_counter()
+
     torch.random.manual_seed(FLAGS.seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
@@ -80,8 +80,8 @@ def main(_):
     optimizer = optim.SGD(model.parameters(), lr=learning_rate)
     criterion = nn.LogSigmoid()
     k = 0.7
-    N = 1000
-    all_triples_id = []
+    N = 100
+    start = perf_counter()
     for time in range(N):
         entities_emb = model.entities_emb.weight.data
         relations_emb = model.relations_emb.weight.data
@@ -91,7 +91,6 @@ def main(_):
         # in train_set, lines is random and diference with origin data set
         for i in range(N_triples):
             (h_id, r_id, t_id) = train_set.__getitem__(i)
-            all_triples_id.append([h_id, r_id, t_id])
             h_emb = entities_emb[h_id]
             r_emb = relations_emb[r_id]
             t_emb = entities_emb[t_id]
@@ -110,10 +109,14 @@ def main(_):
             k_percent_lowest[i] = hrt_embs[norm_order[i][1]]
         k_percent_lowest = k_percent_lowest.to(device).float()
         # define GANs
-        epochs4GANs = 1
+        start_gan = perf_counter()
+        epochs4GANs = 1000
         D, G = GANs.run(k_percent_lowest, emb_dim,
                         learning_rate, batch_size, epochs4GANs)
+        end_gan = perf_counter()
+        trained_GANs_time = end_gan - start_gan
         # train noiAwareKGE
+        start_noiAware = perf_counter()
         for _ in range(start_epoch_id, epochs + 1):
             model.train()
             for local_heads, local_relations, local_tails in train_generator:
@@ -137,7 +140,10 @@ def main(_):
                 loss.mean().backward()
 
                 optimizer.step()
-        print("Finished interator: ", time + 1)
+        end_noiAware = perf_counter()
+        trained_noiAware_time = end_noiAware - start_noiAware
+        print("Finished interator: ", time + 1, " with time ",
+              trained_GANs_time + trained_noiAware_time)
     end = perf_counter()
     print("The NoiAwareGAN is trained")
     print("total time pretrain and train NoiAwareGANs is ", end - start)
