@@ -6,8 +6,6 @@ Mapping = Dict[str, int]
 
 
 def create_mappings(dataset_path: str) -> Tuple[Mapping, Mapping]:
-    """Creates separate mappings to indices for entities and relations."""
-    # counters to have entities/relations sorted from most frequent
     entity_counter = Counter()
     relation_counter = Counter()
     with open(dataset_path, "r") as f:

@@ -1,7 +1,7 @@
 from absl import app
 from absl import flags
 import data
-import TransE as TransE_definition
+import NoiAware as NoiAware_definition
 import os
 import torch
 import torch.optim as optim
@@ -10,24 +10,23 @@ from torch.utils import data as torch_data
 from typing import Tuple
 import numpy as np
 import GANs
-import noiAwareKGE as noiAware_difinition
 from time import perf_counter
 import glob
 FLAGS = flags.FLAGS
-flags.DEFINE_float("lr", default=0.001, help="Learning rate value.")
+flags.DEFINE_float("lr", default=0.0001, help="Learning rate value.")
 flags.DEFINE_integer("seed", default=1234, help="Seed value.")
-flags.DEFINE_integer("batch_size", default=512, help="Maximum batch size.")
+flags.DEFINE_integer("batch_size", default=1024, help="Maximum batch size.")
 flags.DEFINE_integer("validation_batch_size", default=64,
                      help="Maximum batch size during model validation.")
-flags.DEFINE_integer("emb_dim", default=100,
+flags.DEFINE_integer("emb_dim", default=500,
                      help="Length of entity/relation vector.")
-flags.DEFINE_float("margin", default=1.0,
+flags.DEFINE_float("margin", default=24.0,
                    help="Margin value in margin-based ranking loss.")
 flags.DEFINE_integer(
     "norm", default=1, help="Norm used for calculating dissimilarity metric (usually 1 or 2).")
-flags.DEFINE_integer("epochs", default=2000,
+flags.DEFINE_integer("epochs", default=1,
                      help="Number of training epochs.")
-flags.DEFINE_string("dataset_path", default="./WN18RR",
+flags.DEFINE_string("dataset_path", default="./FB15k-237",
                     help="Path to dataset.")
 flags.DEFINE_bool("use_gpu", default=True, help="Flag enabling gpu usage.")
 
@@ -62,102 +61,84 @@ def main(_):
     device = torch.device('cuda') if FLAGS.use_gpu else torch.device('cpu')
 
     train_set = data.KGDataset(train_path, entity2id, relation2id)
-    N_triples = train_set.__len__()
     train_generator = torch_data.DataLoader(train_set, batch_size=batch_size)
-    start_epoch_id = 1
-    # take k% lowest h + r - t
-    print("---------------------------------------------")
-    print("Start the training NoiAwareGANs")
+    print("Load pretrain embedding vectors")
     pretrain_entities_emb = nn.Embedding(n_entities, emb_dim)
     pretrain_entities_emb.weight.data = torch.tensor(
-        np.loadtxt(path + "/" + "entity2vec100.init"))
+        np.load(path + "/" + "entity_embedding.npy"))
     pretrain_relations_emb = nn.Embedding(n_relations, emb_dim)
     pretrain_relations_emb.weight.data = torch.tensor(
-        np.loadtxt(path + "/" + "relation2vec100.init"))
-    model = noiAware_difinition.NoiAwareKGE(
-        pretrain_entities_emb, pretrain_relations_emb, emb_dim, device, margin=margin)
+        np.load(path + "/" + "relation_embedding.npy"))
+
+    model = NoiAware_definition.NoiAware(
+        pretrain_entities_emb, pretrain_relations_emb, n_entities, n_relations, emb_dim, device, margin=margin)
     model = model.to(device)
-    optimizer = optim.SGD(model.parameters(), lr=learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.LogSigmoid()
-    k = 0.7
-    N = 100
-    start = perf_counter()
-    for time in range(N):
-        entities_emb = model.entities_emb.weight.data
-        relations_emb = model.relations_emb.weight.data
-        hrt_embs = torch.zeros((N_triples, 3, emb_dim), dtype=float)
-        norm_order = []
-        #triples_id = []
-        # in train_set, lines is random and diference with origin data set
-        for i in range(N_triples):
-            (h_id, r_id, t_id) = train_set.__getitem__(i)
-            h_emb = entities_emb[h_id]
-            r_emb = relations_emb[r_id]
-            t_emb = entities_emb[t_id]
-            norm = torch.norm(h_emb+r_emb-t_emb, p=1)
-            norm_order.append((norm.item(), i))
-            #triples_id.append([h_id, r_id, t_id])
-            hrt_embs[i][0] = h_emb
-            hrt_embs[i][1] = r_emb
-            hrt_embs[i][2] = t_emb
+    #
+    epochs4GAN = 1
+    negative_sample_size = 1024
+    n_negs_rand = int(n_entities/2)
+    k = int(batch_size*0.7)
+    for _ in range(1, epochs + 1):
+        model.train()
+        for local_heads, local_relations, local_tails in train_generator:
+            local_heads, local_relations, local_tails = (local_heads.to(
+                device), local_relations.to(device), local_tails.to(device))
+            positive_triples = torch.stack(
+                (local_heads, local_relations, local_tails), dim=1).long()
+            pos_embs = model._get_emb(positive_triples)
+            # make -t
+            pos_embs[:, 2] = -pos_embs[:, 2]
+            # take k%
 
-        dtype = [("norm", float), ("order", int)]
-        norm_order = np.array(norm_order, dtype=dtype)
-        norm_order = np.sort(norm_order, order="norm")
-        k_percent_lowest = torch.zeros((int(k*N_triples), 3, emb_dim))
-        for i in range(int(k*N_triples)):
-            k_percent_lowest[i] = hrt_embs[norm_order[i][1]]
-        k_percent_lowest = k_percent_lowest.to(device).float()
-        # define GANs
-        start_gan = perf_counter()
-        epochs4GANs = 1000
-        D, G = GANs.run(k_percent_lowest, emb_dim,
-                        learning_rate, batch_size, epochs4GANs)
-        end_gan = perf_counter()
-        trained_GANs_time = end_gan - start_gan
-        # train noiAwareKGE
-        start_noiAware = perf_counter()
-        for _ in range(start_epoch_id, epochs + 1):
-            model.train()
-            for local_heads, local_relations, local_tails in train_generator:
-                local_heads, local_relations, local_tails = (local_heads.to(device), local_relations.to(device),
-                                                             local_tails.to(device))
-                positive_triples = torch.stack(
-                    (local_heads, local_relations, local_tails), dim=1).long()
-                head_or_tail = torch.randint(
-                    high=2, size=local_heads.size(), device=device)
-                random_entities = torch.randint(
-                    high=len(entity2id), size=local_heads.size(), device=device)
-                broken_heads = torch.where(
-                    head_or_tail == 1, random_entities, local_heads)
-                broken_tails = torch.where(
-                    head_or_tail == 0, random_entities, local_tails)
-                negative_triples = torch.stack(
-                    (broken_heads, local_relations, broken_tails), dim=1).long()
-                optimizer.zero_grad()
-                loss = model(positive_triples, negative_triples, D, G)
-                loss = criterion(loss)
-                loss.mean().backward()
+            plus_hrt = torch.sum(pos_embs, dim=1)
+            distance_hrt = torch.norm(plus_hrt, dim=1)
+            pos_of_k_percent = plus_hrt[torch.topk(distance_hrt, k).indices]
 
-                optimizer.step()
-        end_noiAware = perf_counter()
-        trained_noiAware_time = end_noiAware - start_noiAware
-        print("Finished interator: ", time + 1, " with time ",
-              trained_GANs_time + trained_noiAware_time)
-        entities_emb = model.entities_emb.weight.data.cpu().numpy()
-        relations_emb = model.relations_emb.weight.data.cpu().numpy()
-        directory = "output" + str(time + 1)
-        path = os.path.join("./", directory)
-        if not os.path.exists(path):
-            os.mkdir(path)
-        f = open("./output/entity2id.txt", "w")
-        np.savetxt("./output/entities_emb.txt", entities_emb)
-        np.savetxt("./output/relations_emb.txt", relations_emb)
-    end = perf_counter()
-    print("The NoiAwareGAN is trained")
-    print("total time pretrain and train NoiAwareGANs is ", end - start)
-    print("---------------------------------------------")
-    print("Done!")
+            D, G = GANs.run(pos_of_k_percent, emb_dim, learning_rate,
+                            epochs4GAN, negative_sample_size, n_negs_rand)
+            # tao negative_triples
+
+            negative_triples = []
+            for h, r, t in positive_triples:
+                h_or_t = torch.randint(
+                    high=2, size=(n_negs_rand,), device=device)
+                for ber in h_or_t:
+                    random_entity = torch.randint(
+                        high=n_entities, size=(1,), device=device)
+                    if ber == 1:
+                        while random_entity == h:
+                            random_entity = torch.randint(
+                                high=n_entities, size=(1,), device=device)
+                        negative_triples.append([random_entity, r, t])
+                    else:
+                        while random_entity == t:
+                            random_entity = torch.randint(
+                                high=n_entities, size=(1,), device=device)
+                        negative_triples.append([h, r, random_entity])
+            negative_triples = torch.tensor(negative_triples).to(device)
+            # dung GAN de loc negative sample
+            negative_blocks = torch_data.DataLoader(
+                negative_triples, n_negs_rand)
+            # return len: batch_size, negative_size for each block
+            blocks_true_negs_each_pos = []
+            for negs in negative_blocks:
+                negs_embs = model._get_emb(negs)
+                concat_hrt = torch.reshape(
+                    negs_embs, (len(negs_embs), 1, emb_dim * 3))
+                probabs_neg = G.forward(concat_hrt).view(-1)
+                true_negs = negs[torch.topk(
+                    probabs_neg, negative_sample_size).indices]
+                blocks_true_negs_each_pos.append(true_negs)
+            print("alo tai day")
+            optimizer.zero_grad()
+            loss = model(positive_triples, blocks_true_negs_each_pos,
+                         negative_sample_size, D)
+            print("alo tai day")
+            loss = criterion(loss)
+            loss.mean().backward()
+            optimizer.step()
 
 
 if __name__ == '__main__':
