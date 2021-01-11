@@ -110,7 +110,7 @@ def main(_):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.LogSigmoid()
     #
-    epochs4GAN = 1000
+    epochs4GAN = 100
     negative_sample_size = 1024
     n_negs = int(n_entities/2)
     k = int(batch_size*0.7)
@@ -145,7 +145,7 @@ def main(_):
             loss = criterion(loss)
             loss.mean().backward()
             optimizer.step()
-        if epoch % 100 == 0:
+        if epoch % 50 == 0:
             entities_emb = model.entities_emb.weight.data.cpu().numpy()
             relations_emb = model.relations_emb.weight.data.cpu().numpy()
             np.savetxt("./output/entities_emb.txt", entities_emb)
