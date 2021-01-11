@@ -12,6 +12,7 @@ import numpy as np
 import GANs
 from time import perf_counter
 import glob
+import random
 FLAGS = flags.FLAGS
 flags.DEFINE_float("lr", default=0.0001, help="Learning rate value.")
 flags.DEFINE_integer("seed", default=1234, help="Seed value.")
@@ -101,23 +102,27 @@ def main(_):
             # tao negative_triples
 
             negative_triples = []
-            for h, r, t in positive_triples:
+            for [h, r, t] in positive_triples:
+                h = h.item()
+                r = r.item()
+                t = t.item()
                 h_or_t = torch.randint(
                     high=2, size=(n_negs_rand,), device=device)
-                for ber in h_or_t:
-                    random_entity = torch.randint(
-                        high=n_entities, size=(1,), device=device)
+                rand_neg_samples = random.sample(
+                    range(n_entities), n_negs_rand + 1)
+                for inx, ber in enumerate(h_or_t):
                     if ber == 1:
-                        while random_entity == h:
-                            random_entity = torch.randint(
-                                high=n_entities, size=(1,), device=device)
-                        negative_triples.append([random_entity, r, t])
+                        break_head = rand_neg_samples[inx]
+                        if break_head == h:
+                            break_head = rand_neg_samples[inx + 1]
+                        negative_triples.append([break_head, r, t])
                     else:
-                        while random_entity == t:
-                            random_entity = torch.randint(
-                                high=n_entities, size=(1,), device=device)
-                        negative_triples.append([h, r, random_entity])
+                        break_tail = rand_neg_samples[inx]
+                        if break_tail == t:
+                            break_tail = rand_neg_samples[inx + 1]
+                        negative_triples.append([h, r, break_tail])
             negative_triples = torch.tensor(negative_triples).to(device)
+            print(negative_triples.size())
             # dung GAN de loc negative sample
             negative_blocks = torch_data.DataLoader(
                 negative_triples, n_negs_rand)
@@ -139,6 +144,7 @@ def main(_):
             loss = criterion(loss)
             loss.mean().backward()
             optimizer.step()
+    print("Done")
 
 
 if __name__ == '__main__':

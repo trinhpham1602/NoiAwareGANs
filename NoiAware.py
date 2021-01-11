@@ -21,21 +21,17 @@ class NoiAware(nn.Module):
 
     def forward(self, positive_triples, block_of_negative_triples, negative_sample_size, D: GANs.Discriminator):
         # G take hrt concat
-        positive_triples = self._get_emb(positive_triples).float()
-        positive_triples[:, 2] = -positive_triples[:, 2]
-        input_disc = torch.sum(positive_triples, dim=1)  # vector: h + r - t
-        confident_scores = D.forward(input_disc)
-        sum_scores = 0.0
-        for inx, hrt in enumerate(positive_triples):
-            _4Apos = - \
-                torch.log(torch.sigmoid(self.margin - self._distance(hrt)))
-            true_negs = block_of_negative_triples[inx]
-            _4negs = 1/negative_sample_size * \
-                torch.sum(torch.log(torch.sigmoid(
-                    self.margin - self._distance(true_negs))))
-            withConfScore = confident_scores[inx] * (_4Apos + _4negs)
-            sum_scores = sum_scores + withConfScore
-
+        positive_embs = self._get_emb(positive_triples).float()
+        positive_embs[:, 2] = -positive_embs[:, 2]
+        input_disc = torch.sum(positive_embs, dim=1)  # vector: h + r - t
+        confident_scores = D.forward(input_disc).view(-1)
+        pos_scores = - \
+            torch.log(torch.sigmoid(self.margin -
+                                    self._distance(positive_triples)))
+        neg_scores = torch.tensor([torch.sum(1/negative_sample_size*torch.log(torch.sigmoid(
+            self.margin - self._distance(neg_trips)))) for neg_trips in block_of_negative_triples])
+        print(neg_scores.size())
+        sum_scores = confident_scores*(pos_scores + neg_scores)
         return sum_scores
 
     def _get_emb(self, triplets):
