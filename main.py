@@ -25,7 +25,7 @@ flags.DEFINE_float("margin", default=24.0,
                    help="Margin value in margin-based ranking loss.")
 flags.DEFINE_integer(
     "norm", default=1, help="Norm used for calculating dissimilarity metric (usually 1 or 2).")
-flags.DEFINE_integer("epochs", default=1,
+flags.DEFINE_integer("epochs", default=1000,
                      help="Number of training epochs.")
 flags.DEFINE_string("dataset_path", default="./FB15k-237",
                     help="Path to dataset.")
@@ -45,8 +45,8 @@ def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAwar
         break_tail.remove(pos[2])
     else:
         break_tail.pop()
-    break_head = torch.tensor(break_head)
-    break_tail = torch.tensor(break_tail)
+    break_head = torch.tensor(break_head).to(device)
+    break_tail = torch.tensor(break_tail).to(device)
 
     negs[:, 2] = break_tail
     negs_emb = model._get_emb(negs)
@@ -54,9 +54,7 @@ def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAwar
     negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
     true_negs_tail = negs[torch.topk(
         G.forward(negs_emb).view(-1), int(sizeof_true_negs/2)).indices]
-    print(true_negs_tail.size())
     # h' r t
-    # print(true_negs_tail[0])
     negs = pos.repeat((n_neg, 1))
 
     negs[:, 0] = break_head
@@ -64,8 +62,6 @@ def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAwar
     negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
     true_negs_head = negs[torch.topk(
         G.forward(negs_emb).view(-1), int(sizeof_true_negs/2)).indices]
-    print(true_negs_head.size())
-    print("alo")
     return torch.cat((true_negs_head, true_negs_tail)).to(device)
 
 
@@ -114,11 +110,16 @@ def main(_):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.LogSigmoid()
     #
-    epochs4GAN = 1
+    epochs4GAN = 1000
     negative_sample_size = 1024
-    n_negs = int(n_entities/3)
+    n_negs = int(n_entities/2)
     k = int(batch_size*0.7)
-    for _ in range(1, epochs + 1):
+    start = perf_counter()
+    directory = "output"
+    path = os.path.join("./", directory)
+    if not os.path.exists(path):
+        os.mkdir(path)
+    for epoch in range(1, epochs + 1):
         model.train()
         for local_heads, local_relations, local_tails in train_generator:
             local_heads, local_relations, local_tails = (local_heads.to(
@@ -138,15 +139,19 @@ def main(_):
             # tao negative_triples
             blocks_true_negs_each_pos = [take_true_neg_trips(
                 G, pos, model, n_negs, n_entities, emb_dim, negative_sample_size, device) for pos in positive_triples]
-            print("alo tai day")
             optimizer.zero_grad()
             loss = model(positive_triples, blocks_true_negs_each_pos,
                          negative_sample_size, D)
-            print("alo tai day")
             loss = criterion(loss)
             loss.mean().backward()
             optimizer.step()
-    print("Done")
+        if epoch % 100 == 0:
+            entities_emb = model.entities_emb.weight.data.cpu().numpy()
+            relations_emb = model.relations_emb.weight.data.cpu().numpy()
+            np.savetxt("./output/entities_emb.txt", entities_emb)
+            np.savetxt("./output/relations_emb.txt", relations_emb)
+    end = perf_counter()
+    print("Done with: ", end - start)
 
 
 if __name__ == '__main__':

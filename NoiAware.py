@@ -21,20 +21,15 @@ class NoiAware(nn.Module):
 
     def forward(self, positive_triples, block_of_negative_triples, negative_sample_size, D: GANs.Discriminator):
         # G take hrt concat
-        print(positive_triples.size())
-        print(block_of_negative_triples[0].size())
         positive_embs = self._get_emb(positive_triples)
         positive_embs[:, 2] = -positive_embs[:, 2]
         input_disc = torch.sum(positive_embs, dim=1)  # vector: h + r - t
         confident_scores = D.forward(input_disc).view(-1)
-        print(confident_scores.size())
         pos_scores = - \
             torch.log(torch.sigmoid(self.margin -
                                     self._distance(positive_triples)))
-        print(pos_scores.size())
         neg_scores = torch.tensor([torch.sum(1/negative_sample_size*torch.log(torch.sigmoid(
             self.margin - self._distance(neg_trips)))) for neg_trips in block_of_negative_triples])
-        print(neg_scores.size())
         sum_scores = confident_scores*(pos_scores + neg_scores)
         return sum_scores
 
@@ -43,8 +38,8 @@ class NoiAware(nn.Module):
         relations = triplets[:, 1]
         tails = triplets[:, 2]
 
-        return torch.stack((self.entities_emb(heads), self.relations_emb(
-            relations), self.entities_emb(tails)), dim=1)  # size: batch_size x 3 x emb_dim
+        return torch.stack((self.entities_emb(heads).to(self.device), self.relations_emb(
+            relations).to(self.device), self.entities_emb(tails).to(self.device)), dim=1)  # size: batch_size x 3 x emb_dim
 
     def predict(self, triplets: torch.LongTensor):
         return self._distance(triplets)
@@ -53,5 +48,5 @@ class NoiAware(nn.Module):
         heads = triplets[:, 0]
         relations = triplets[:, 1]
         tails = triplets[:, 2]
-        return (self.entities_emb(heads) + self.relations_emb(relations) - self.entities_emb(tails)).norm(p=self.norm,
-                                                                                                          dim=1)
+        return (self.entities_emb(heads).to(self.device) + self.relations_emb(relations).to(self.device) - self.entities_emb(tails).to(self.device)).norm(p=self.norm,
+                                                                                                                                                          dim=1).to(self.device)
