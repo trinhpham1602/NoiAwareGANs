@@ -32,6 +32,33 @@ flags.DEFINE_string("dataset_path", default="./FB15k-237",
 flags.DEFINE_bool("use_gpu", default=True, help="Flag enabling gpu usage.")
 
 
+def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAware_definition.NoiAware, n_neg, n_entities, emb_dim, sizeof_true_negs, device):
+    # h r t'
+    negs = pos.repeat((int(n_neg/2), 1))
+    rand_entities = random.sample(
+        range(n_entities), int(n_neg/2))
+    while pos[2] or pos[0] in rand_entities:
+        rand_entities = random.sample(
+            range(n_entities), int(n_neg/2))
+    rand_entities = torch.tensor(rand_entities)
+    negs[:, 2] = rand_entities
+    negs_emb = model._get_emb(negs)
+    # concat hrt in negs
+    negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
+    true_negs_tail = negs[torch.topk(
+        G.forward(negs_emb).view(-1), sizeof_true_negs).indices]
+    # h' r t
+    negs = pos.repeat((int(n_neg/2), 1))
+
+    negs[:, 0] = rand_entities
+    negs_emb = model._get_emb(negs)
+    negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
+    true_negs_head = negs[torch.topk(
+        G.forward(negs_emb).view(-1), sizeof_true_negs).indices]
+    print("alo")
+    return torch.stack((true_negs_head, true_negs_tail)).to(device)
+
+
 def main(_):
 
     torch.random.manual_seed(FLAGS.seed)
@@ -79,7 +106,7 @@ def main(_):
     #
     epochs4GAN = 1
     negative_sample_size = 1024
-    n_negs_rand = int(n_entities/2)
+    n_negs = int(n_entities/2)
     k = int(batch_size*0.7)
     for _ in range(1, epochs + 1):
         model.train()
@@ -92,50 +119,16 @@ def main(_):
             # make -t
             pos_embs[:, 2] = -pos_embs[:, 2]
             # take k%
-
             plus_hrt = torch.sum(pos_embs, dim=1)
             distance_hrt = torch.norm(plus_hrt, dim=1)
             pos_of_k_percent = plus_hrt[torch.topk(distance_hrt, k).indices]
 
             D, G = GANs.run(pos_of_k_percent, emb_dim, learning_rate,
-                            epochs4GAN, negative_sample_size, n_negs_rand)
+                            epochs4GAN, negative_sample_size, n_negs)
             # tao negative_triples
+            blocks_true_negs_each_pos = [take_true_neg_trips(
+                G, pos, model, n_negs, n_entities, emb_dim, negative_sample_size, device) for pos in positive_triples]
 
-            negative_triples = []
-            for [h, r, t] in positive_triples:
-                h = h.item()
-                r = r.item()
-                t = t.item()
-                h_or_t = torch.randint(
-                    high=2, size=(n_negs_rand,), device=device)
-                rand_neg_samples = random.sample(
-                    range(n_entities), n_negs_rand + 1)
-                for inx, ber in enumerate(h_or_t):
-                    if ber == 1:
-                        break_head = rand_neg_samples[inx]
-                        if break_head == h:
-                            break_head = rand_neg_samples[inx + 1]
-                        negative_triples.append([break_head, r, t])
-                    else:
-                        break_tail = rand_neg_samples[inx]
-                        if break_tail == t:
-                            break_tail = rand_neg_samples[inx + 1]
-                        negative_triples.append([h, r, break_tail])
-            negative_triples = torch.tensor(negative_triples).to(device)
-            print(negative_triples.size())
-            # dung GAN de loc negative sample
-            negative_blocks = torch_data.DataLoader(
-                negative_triples, n_negs_rand)
-            # return len: batch_size, negative_size for each block
-            blocks_true_negs_each_pos = []
-            for negs in negative_blocks:
-                negs_embs = model._get_emb(negs)
-                concat_hrt = torch.reshape(
-                    negs_embs, (len(negs_embs), 1, emb_dim * 3))
-                probabs_neg = G.forward(concat_hrt).view(-1)
-                true_negs = negs[torch.topk(
-                    probabs_neg, negative_sample_size).indices]
-                blocks_true_negs_each_pos.append(true_negs)
             print("alo tai day")
             optimizer.zero_grad()
             loss = model(positive_triples, blocks_true_negs_each_pos,
