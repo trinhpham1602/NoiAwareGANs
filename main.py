@@ -34,29 +34,27 @@ flags.DEFINE_bool("use_gpu", default=True, help="Flag enabling gpu usage.")
 
 def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAware_definition.NoiAware, n_neg, n_entities, emb_dim, sizeof_true_negs, device):
     # h r t'
-    negs = pos.repeat((int(n_neg/2), 1))
-    rand_entities = random.sample(
-        range(n_entities), int(n_neg/2))
-    while pos[2] or pos[0] in rand_entities:
-        rand_entities = random.sample(
-            range(n_entities), int(n_neg/2))
-    rand_entities = torch.tensor(rand_entities)
-    negs[:, 2] = rand_entities
+    negs = pos.repeat((n_entities - 1, 1))
+    break_head = torch.tensor([i for i in range(n_entities) if i != pos[0]])
+    break_tail = torch.tensor([i for i in range(n_entities) if i != pos[2]])
+
+    negs[:, 2] = break_tail
     negs_emb = model._get_emb(negs)
     # concat hrt in negs
     negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
     true_negs_tail = negs[torch.topk(
         G.forward(negs_emb).view(-1), sizeof_true_negs).indices]
     # h' r t
-    negs = pos.repeat((int(n_neg/2), 1))
+    # print(true_negs_tail[0])
+    negs = pos.repeat((n_entities - 1, 1))
 
-    negs[:, 0] = rand_entities
+    negs[:, 0] = break_head
     negs_emb = model._get_emb(negs)
     negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
     true_negs_head = negs[torch.topk(
         G.forward(negs_emb).view(-1), sizeof_true_negs).indices]
     print("alo")
-    return torch.stack((true_negs_head, true_negs_tail)).to(device)
+    return torch.cat((true_negs_head, true_negs_tail))
 
 
 def main(_):
@@ -90,14 +88,14 @@ def main(_):
 
     train_set = data.KGDataset(train_path, entity2id, relation2id)
     train_generator = torch_data.DataLoader(train_set, batch_size=batch_size)
-    print("Load pretrain embedding vectors")
+
     pretrain_entities_emb = nn.Embedding(n_entities, emb_dim)
     pretrain_entities_emb.weight.data = torch.tensor(
         np.load(path + "/" + "entity_embedding.npy"))
     pretrain_relations_emb = nn.Embedding(n_relations, emb_dim)
     pretrain_relations_emb.weight.data = torch.tensor(
         np.load(path + "/" + "relation_embedding.npy"))
-
+    print("Finished load pretrain embedding vectors")
     model = NoiAware_definition.NoiAware(
         pretrain_entities_emb, pretrain_relations_emb, n_entities, n_relations, emb_dim, device, margin=margin)
     model = model.to(device)
