@@ -34,27 +34,39 @@ flags.DEFINE_bool("use_gpu", default=True, help="Flag enabling gpu usage.")
 
 def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAware_definition.NoiAware, n_neg, n_entities, emb_dim, sizeof_true_negs, device):
     # h r t'
-    negs = pos.repeat((n_entities - 1, 1))
-    break_head = torch.tensor([i for i in range(n_entities) if i != pos[0]])
-    break_tail = torch.tensor([i for i in range(n_entities) if i != pos[2]])
+    negs = pos.repeat((n_neg, 1))
+    break_head = random.sample(range(n_entities), n_neg + 1)
+    if pos[0] in break_head:
+        break_head.remove(pos[0])
+    else:
+        break_head.pop()
+    break_tail = random.sample(range(n_entities), n_neg + 1)
+    if pos[2] in break_tail:
+        break_tail.remove(pos[2])
+    else:
+        break_tail.pop()
+    break_head = torch.tensor(break_head)
+    break_tail = torch.tensor(break_tail)
 
     negs[:, 2] = break_tail
     negs_emb = model._get_emb(negs)
     # concat hrt in negs
     negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
     true_negs_tail = negs[torch.topk(
-        G.forward(negs_emb).view(-1), sizeof_true_negs).indices]
+        G.forward(negs_emb).view(-1), int(sizeof_true_negs/2)).indices]
+    print(true_negs_tail.size())
     # h' r t
     # print(true_negs_tail[0])
-    negs = pos.repeat((n_entities - 1, 1))
+    negs = pos.repeat((n_neg, 1))
 
     negs[:, 0] = break_head
     negs_emb = model._get_emb(negs)
     negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
     true_negs_head = negs[torch.topk(
-        G.forward(negs_emb).view(-1), sizeof_true_negs).indices]
+        G.forward(negs_emb).view(-1), int(sizeof_true_negs/2)).indices]
+    print(true_negs_head.size())
     print("alo")
-    return torch.cat((true_negs_head, true_negs_tail))
+    return torch.cat((true_negs_head, true_negs_tail)).to(device)
 
 
 def main(_):
@@ -104,7 +116,7 @@ def main(_):
     #
     epochs4GAN = 1
     negative_sample_size = 1024
-    n_negs = int(n_entities/2)
+    n_negs = int(n_entities/3)
     k = int(batch_size*0.7)
     for _ in range(1, epochs + 1):
         model.train()
@@ -126,7 +138,6 @@ def main(_):
             # tao negative_triples
             blocks_true_negs_each_pos = [take_true_neg_trips(
                 G, pos, model, n_negs, n_entities, emb_dim, negative_sample_size, device) for pos in positive_triples]
-
             print("alo tai day")
             optimizer.zero_grad()
             loss = model(positive_triples, blocks_true_negs_each_pos,

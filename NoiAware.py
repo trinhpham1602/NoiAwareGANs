@@ -27,13 +27,14 @@ class NoiAware(nn.Module):
         positive_embs[:, 2] = -positive_embs[:, 2]
         input_disc = torch.sum(positive_embs, dim=1)  # vector: h + r - t
         confident_scores = D.forward(input_disc).view(-1)
+        print(confident_scores.size())
         pos_scores = - \
             torch.log(torch.sigmoid(self.margin -
                                     self._distance(positive_triples)))
-        print(pos_scores)
+        print(pos_scores.size())
         neg_scores = torch.tensor([torch.sum(1/negative_sample_size*torch.log(torch.sigmoid(
             self.margin - self._distance(neg_trips)))) for neg_trips in block_of_negative_triples])
-        print(neg_scores)
+        print(neg_scores.size())
         sum_scores = confident_scores*(pos_scores + neg_scores)
         return sum_scores
 
