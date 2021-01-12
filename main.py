@@ -34,7 +34,8 @@ flags.DEFINE_bool("use_gpu", default=True, help="Flag enabling gpu usage.")
 
 def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAware_definition.NoiAware, n_neg, n_entities, emb_dim, sizeof_true_negs, device):
     # h r t'
-    negs = pos.repeat((n_neg, 1))
+    start = perf_counter()
+    negs = pos.repeat((n_neg, 1)).to(device)
     break_head = random.sample(range(n_entities), n_neg + 1)
     if pos[0] in break_head:
         break_head.remove(pos[0])
@@ -51,17 +52,19 @@ def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAwar
     negs[:, 2] = break_tail
     negs_emb = model._get_emb(negs)
     # concat hrt in negs
-    negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
+    negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3).to(device)
     true_negs_tail = negs[torch.topk(
         G.forward(negs_emb).view(-1), int(sizeof_true_negs/2)).indices]
     # h' r t
-    negs = pos.repeat((n_neg, 1))
+    negs = pos.repeat((n_neg, 1)).to(device)
 
     negs[:, 0] = break_head
     negs_emb = model._get_emb(negs)
-    negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3)
+    negs_emb = negs_emb.reshape(len(negs_emb), 1, emb_dim*3).to(device)
     true_negs_head = negs[torch.topk(
         G.forward(negs_emb).view(-1), int(sizeof_true_negs/2)).indices]
+    end = perf_counter()
+    print("finished negs for a pos with: ", end - start)
     return torch.cat((true_negs_head, true_negs_tail)).to(device)
 
 
