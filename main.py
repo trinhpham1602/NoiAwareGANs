@@ -64,7 +64,6 @@ def take_true_neg_trips(G: GANs.Generator, pos: torch.LongTensor, model: NoiAwar
     true_negs_head = negs[torch.topk(
         G.forward(negs_emb).view(-1), int(sizeof_true_negs/2)).indices]
     end = perf_counter()
-    print("finished negs for a pos with: ", end - start)
     return torch.cat((true_negs_head, true_negs_tail)).to(device)
 
 
@@ -113,9 +112,9 @@ def main(_):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.LogSigmoid()
     #
-    epochs4GAN = 100
-    negative_sample_size = 1024
-    n_negs = int(n_entities/2)
+    epochs4GAN = 1000
+    negative_sample_size = 256
+    n_negs = negative_sample_size*2
     k = int(batch_size*0.7)
     start = perf_counter()
     directory = "output"
