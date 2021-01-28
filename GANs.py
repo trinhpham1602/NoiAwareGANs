@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-import numpy as np
+from torch.autograd import Variable
+import NoiAware
 
+import numpy as np
+import random
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -35,40 +37,57 @@ class Generator(nn.Module):
         return self.gen(x)
 
 
-def run(postriples, emb_dim, lr, epochs, negative_sample_size, n_neg):
-
-    disc = Discriminator(emb_dim).to(device)
-    gen = Generator(3*emb_dim).to(device)
+def run(model: NoiAware, pos_triples, entities, emb_dim, lr, step, n_negs, k_negs):
+    disc = Discriminator(emb_dim).to(device)  # environment
+    gen = Generator(3*emb_dim).to(device)  # agent
     opt_disc = optim.Adam(disc.parameters(), lr=lr)
     opt_gen = optim.Adam(gen.parameters(), lr=lr)
-    criterion = nn.BCELoss()
+    b = 0
+    for _ in range(step):
+        G_d = 0
+        G_g = 0
+        r_sum = 0
+        opt_disc.zero_grad()
+        opt_gen.zero_grad()
+        global high_quality_negs
+        high_quality_negs = []
+        for pos in pos_triples:
+            true_entities = np.array([pos[0], pos[2]])
+            ignore_true_entities = np.setdiff1d(entities, true_entities)
+            head_or_tail = np.random.randint(2, size=n_negs)
+            rand_entities = random.sample(list(ignore_true_entities), n_negs)
+            neg_triples = []
+            for i, val in enumerate(head_or_tail):
+                if val == 1:
+                    neg_triples.append([pos[0], pos[1], rand_entities[i]])
+                else:
+                    neg_triples.append([rand_entities[i], pos[1], pos[2]])
+            # get embedding
 
-    for _ in range(epochs):
-
-        # Train Discriminator: max log(D(x)) + log(1 - D(G(z)))
-        noise = torch.randn(n_neg, 3*emb_dim).to(
-            device)
-        fake_probab = gen(noise).view(-1)
-        true_neg_trips = noise[torch.topk(
-            fake_probab, negative_sample_size).indices]
-        fake_trips = noise.reshape((n_neg, 3, emb_dim))
-        disc_real = disc(postriples).view(-1)
-        lossD_real = criterion(disc_real, torch.ones_like(disc_real))
-        disc_fake = disc(fake_trips).view(-1)
-        lossD_fake = criterion(disc_fake, torch.zeros_like(disc_fake))
-        lossD = (lossD_real + lossD_fake) / 2
-        disc.zero_grad()
-        lossD.backward(retain_graph=True)
+            pos_emb = model._get_emb4triple(pos).detach()
+            pos_emb[2] = -pos_emb[2]
+            sum_hrt = torch.sum(pos_emb, dim=1)
+            neg_triples = torch.tensor(neg_triples)
+            neg_embs = model._get_emb(neg_triples).detach()
+            temp_neg_embs = neg_embs
+            temp_neg_embs[2] = -temp_neg_embs[2]
+            sum_neg_hrts = torch.sum(temp_neg_embs, dim=1)
+            G_d += -torch.log(disc(sum_hrt)) - \
+                torch.sum(torch.log(1 - disc(sum_neg_hrts)))
+            reward = - disc(sum_neg_hrts).detach()
+            r_sum += reward
+            G_g += (reward - b) * \
+                torch.log(gen(neg_embs.view(n_negs, 3*emb_dim)))
+            prob_negs = gen(neg_embs.view(n_negs, 3*emb_dim)).detach().view(-1)
+            high_quality_negs.append(
+                neg_triples[torch.topk(prob_negs, k_negs).indices])
+        G_d.backward()
         opt_disc.step()
-
-        # Train Generator: min log(1 - D(G(z))) <-> max log(D(G(z))
-        # where the second option of maximizing doesn't suffer from
-        # saturating gradients
-        true_neg_trips = true_neg_trips.reshape(
-            (len(true_neg_trips), 3, emb_dim))
-        output = disc(fake_trips).view(-1)
-        lossG = criterion(output, torch.ones_like(output))
-        gen.zero_grad()
-        lossG.backward()
+        G_g.sum().backward()
         opt_gen.step()
+        b = r_sum/pos_triples.size(0)
+    # choose k high quality negs
+    test_negs = model._get_emb(high_quality_negs[0]).view(k_negs, 3*emb_dim)
+    print(gen(test_negs))
+
     return disc, gen

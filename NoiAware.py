@@ -38,8 +38,15 @@ class NoiAware(nn.Module):
         relations = triplets[:, 1]
         tails = triplets[:, 2]
 
-        return torch.stack((self.entities_emb(heads).to(self.device), self.relations_emb(
-            relations).to(self.device), self.entities_emb(tails).to(self.device)), dim=1)  # size: batch_size x 3 x emb_dim
+        return torch.stack((self.entities_emb(heads), self.relations_emb(
+            relations), self.entities_emb(tails)), dim=1)  # size: batch_size x 3 x emb_dim
+
+    def _get_emb4triple(self, triple):
+        head = triple[0]
+        relation = triple[1]
+        tail = triple[2]
+        return torch.stack((self.entities_emb(head), self.relations_emb(
+            relation), self.entities_emb(tail)), dim=1)
 
     def predict(self, triplets: torch.LongTensor):
         return self._distance(triplets)
