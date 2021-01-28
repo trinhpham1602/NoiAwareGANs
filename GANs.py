@@ -64,11 +64,11 @@ def run(model: NoiAware, pos_triples, entities, emb_dim, lr, step, n_negs, k_neg
                     neg_triples.append([rand_entities[i], pos[1], pos[2]])
             # get embedding
 
-            pos_emb = model._get_emb4triple(pos).detach()
+            pos_emb = model._get_emb4triple(pos.to(device)).detach()
             pos_emb[2] = -pos_emb[2]
             sum_hrt = torch.sum(pos_emb, dim=1)
             neg_triples = torch.tensor(neg_triples)
-            neg_embs = model._get_emb(neg_triples).detach()
+            neg_embs = model._get_emb(neg_triples.to(device)).detach()
             temp_neg_embs = neg_embs
             temp_neg_embs[2] = -temp_neg_embs[2]
             sum_neg_hrts = torch.sum(temp_neg_embs, dim=1)
@@ -87,7 +87,8 @@ def run(model: NoiAware, pos_triples, entities, emb_dim, lr, step, n_negs, k_neg
         opt_gen.step()
         b = r_sum/pos_triples.size(0)
     # choose k high quality negs
-    test_negs = model._get_emb(high_quality_negs[0]).view(k_negs, 3*emb_dim)
+    test_negs = model._get_emb(
+        high_quality_negs[0].to(device)).view(k_negs, 3*emb_dim)
     print(gen(test_negs))
 
     return disc, gen

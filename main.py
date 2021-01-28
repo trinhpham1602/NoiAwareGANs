@@ -78,7 +78,7 @@ def main(_):
     criterion = nn.LogSigmoid()
     #
     epochs4GAN = 1000
-    k_negs = 32
+    k_negs = 16
     n_negs = 256
     k = int(batch_size*0.7)
     start = perf_counter()
@@ -96,7 +96,7 @@ def main(_):
                 (local_heads, local_relations, local_tails), dim=1).long()
 
             batch_entities = torch.unique(
-                torch.cat((local_heads, local_tails)).view(-1), sorted=False).numpy()
+                torch.cat((local_heads, local_tails)).view(-1), sorted=False).cpu().numpy()
             # moi pos co 256 neg, cho 32 neg chat luong cao.
             D, G = GANs.run(model, positive_triples, batch_entities, emb_dim,
                             learning_rate, epochs4GAN, n_negs, k_negs)
