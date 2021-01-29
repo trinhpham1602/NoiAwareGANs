@@ -75,9 +75,8 @@ def main(_):
         pretrain_entities_emb, pretrain_relations_emb, n_entities, n_relations, emb_dim, device, margin=margin)
     model = model.to(device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.LogSigmoid()
     #
-    epochs4GAN = 1000
+    epochs4GAN = 1
     k_negs = 16
     n_negs = 256
     k = int(batch_size*0.7)
@@ -89,7 +88,7 @@ def main(_):
     for epoch in range(1, epochs + 1):
         model.train()
         for local_heads, local_relations, local_tails in train_generator:
-            start = perf_counter()
+            optimizer.zero_grad()
             local_heads, local_relations, local_tails = (local_heads.to(
                 device), local_relations.to(device), local_tails.to(device))
             positive_triples = torch.stack(
@@ -97,12 +96,11 @@ def main(_):
 
             batch_entities = torch.unique(
                 torch.cat((local_heads, local_tails)).view(-1), sorted=False).cpu().numpy()
-            # moi pos co 256 neg, cho 32 neg chat luong cao.
-            D, G = GANs.run(model, positive_triples, batch_entities, emb_dim,
-                            learning_rate, epochs4GAN, n_negs, k_negs)
-            break
-            end = perf_counter()
-            print("finished batch with", end - start)
+            D, high_quality_negs = GANs.run(model, positive_triples, batch_entities, emb_dim,
+                                            learning_rate, epochs4GAN, n_negs, k_negs)
+            loss = model(positive_triples, high_quality_negs, D)
+            loss.mean().backward()
+            optimizer.step()
         if epoch % 50 == 0:
             entities_emb = model.entities_emb.weight.data.cpu().numpy()
             relations_emb = model.relations_emb.weight.data.cpu().numpy()

@@ -19,16 +19,17 @@ class NoiAware(nn.Module):
         self.entities_emb = pretrain_entities_emb
         self.relations_emb = pretrain_relations_emb
 
-    def forward(self, positive_triples, block_of_negative_triples, negative_sample_size, D: GANs.Discriminator):
+    def forward(self, positive_triples, block_of_negative_triples, D: GANs.Discriminator):
         # G take hrt concat
         positive_embs = self._get_emb(positive_triples)
         positive_embs[:, 2] = -positive_embs[:, 2]
         input_disc = torch.sum(positive_embs, dim=1)  # vector: h + r - t
-        confident_scores = D.forward(input_disc).view(-1).to(self.device)
+        confident_scores = D.forward(
+            input_disc).detach().view(-1).to(self.device)
         pos_scores = - \
             torch.log(torch.sigmoid(self.margin -
                                     self._distance(positive_triples))).to(self.device)
-        neg_scores = torch.tensor([torch.sum(1/negative_sample_size*torch.log(torch.sigmoid(
+        neg_scores = torch.tensor([torch.sum(1/len(block_of_negative_triples)*torch.log(torch.sigmoid(
             self.margin - self._distance(neg_trips)))) for neg_trips in block_of_negative_triples]).to(self.device)
         sum_scores = confident_scores*(pos_scores + neg_scores)
         return sum_scores

@@ -86,9 +86,4 @@ def run(model: NoiAware, pos_triples, entities, emb_dim, lr, step, n_negs, k_neg
         G_g.sum().backward()
         opt_gen.step()
         b = r_sum/pos_triples.size(0)
-    # choose k high quality negs
-    test_negs = model._get_emb(
-        high_quality_negs[0].to(device)).view(k_negs, 3*emb_dim)
-    print(gen(test_negs))
-
-    return disc, gen
+    return disc, high_quality_negs
